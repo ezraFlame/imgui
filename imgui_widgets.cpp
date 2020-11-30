@@ -1351,7 +1351,7 @@ void ImGui::SeparatorEx(ImGuiSeparatorFlags flags)
         if (g.GroupStack.Size > 0 && g.GroupStack.back().WindowID == window->ID)
             x1 += window->DC.Indent.x;
 
-        ImGuiColumns* columns = (flags & ImGuiSeparatorFlags_SpanAllColumns) ? window->DC.CurrentColumns : NULL;
+        ImGuiOldColumns* columns = (flags & ImGuiSeparatorFlags_SpanAllColumns) ? window->DC.CurrentColumns : NULL;
         if (columns)
             PushColumnsBackground();
 
@@ -3857,9 +3857,10 @@ bool ImGui::InputTextEx(const char* label, const char* hint, char* buf, int buf_
 
     float scroll_y = is_multiline ? draw_window->Scroll.y : FLT_MAX;
 
+    const bool init_changed_specs = (state != NULL && state->Stb.single_line != !is_multiline);
     const bool init_make_active = (focus_requested || user_clicked || user_scroll_finish || user_nav_input_start);
     const bool init_state = (init_make_active || user_scroll_active);
-    if (init_state && g.ActiveId != id)
+    if ((init_state && g.ActiveId != id) || init_changed_specs)
     {
         // Access state even if we don't own it yet.
         state = &g.InputTextState;
@@ -3881,7 +3882,7 @@ bool ImGui::InputTextEx(const char* label, const char* hint, char* buf, int buf_
 
         // Preserve cursor position and undo/redo stack if we come back to same widget
         // FIXME: For non-readonly widgets we might be able to require that TextAIsValid && TextA == buf ? (untested) and discard undo stack if user buffer has changed.
-        const bool recycle_state = (state->ID == id);
+        const bool recycle_state = (state->ID == id && !init_changed_specs);
         if (recycle_state)
         {
             // Recycle existing cursor/selection/undo stack but clamp position
@@ -7907,19 +7908,19 @@ int ImGui::GetColumnsCount()
     return window->DC.CurrentColumns ? window->DC.CurrentColumns->Count : 1;
 }
 
-float ImGui::GetColumnOffsetFromNorm(const ImGuiColumns* columns, float offset_norm)
+float ImGui::GetColumnOffsetFromNorm(const ImGuiOldColumns* columns, float offset_norm)
 {
     return offset_norm * (columns->OffMaxX - columns->OffMinX);
 }
 
-float ImGui::GetColumnNormFromOffset(const ImGuiColumns* columns, float offset)
+float ImGui::GetColumnNormFromOffset(const ImGuiOldColumns* columns, float offset)
 {
     return offset / (columns->OffMaxX - columns->OffMinX);
 }
 
 static const float COLUMNS_HIT_RECT_HALF_WIDTH = 4.0f;
 
-static float GetDraggedColumnOffset(ImGuiColumns* columns, int column_index)
+static float GetDraggedColumnOffset(ImGuiOldColumns* columns, int column_index)
 {
     // Active (dragged) column always follow mouse. The reason we need this is that dragging a column to the right edge of an auto-resizing
     // window creates a feedback loop because we store normalized positions. So while dragging we enforce absolute positioning.
@@ -7939,7 +7940,7 @@ static float GetDraggedColumnOffset(ImGuiColumns* columns, int column_index)
 float ImGui::GetColumnOffset(int column_index)
 {
     ImGuiWindow* window = GetCurrentWindowRead();
-    ImGuiColumns* columns = window->DC.CurrentColumns;
+    ImGuiOldColumns* columns = window->DC.CurrentColumns;
     if (columns == NULL)
         return 0.0f;
 
@@ -7952,7 +7953,7 @@ float ImGui::GetColumnOffset(int column_index)
     return x_offset;
 }
 
-static float GetColumnWidthEx(ImGuiColumns* columns, int column_index, bool before_resize = false)
+static float GetColumnWidthEx(ImGuiOldColumns* columns, int column_index, bool before_resize = false)
 {
     if (column_index < 0)
         column_index = columns->Current;
@@ -7969,7 +7970,7 @@ float ImGui::GetColumnWidth(int column_index)
 {
     ImGuiContext& g = *GImGui;
     ImGuiWindow* window = g.CurrentWindow;
-    ImGuiColumns* columns = window->DC.CurrentColumns;
+    ImGuiOldColumns* columns = window->DC.CurrentColumns;
     if (columns == NULL)
         return GetContentRegionAvail().x;
 
@@ -7982,7 +7983,7 @@ void ImGui::SetColumnOffset(int column_index, float offset)
 {
     ImGuiContext& g = *GImGui;
     ImGuiWindow* window = g.CurrentWindow;
-    ImGuiColumns* columns = window->DC.CurrentColumns;
+    ImGuiOldColumns* columns = window->DC.CurrentColumns;
     IM_ASSERT(columns != NULL);
 
     if (column_index < 0)
@@ -8003,7 +8004,7 @@ void ImGui::SetColumnOffset(int column_index, float offset)
 void ImGui::SetColumnWidth(int column_index, float width)
 {
     ImGuiWindow* window = GetCurrentWindowRead();
-    ImGuiColumns* columns = window->DC.CurrentColumns;
+    ImGuiOldColumns* columns = window->DC.CurrentColumns;
     IM_ASSERT(columns != NULL);
 
     if (column_index < 0)
@@ -8014,11 +8015,11 @@ void ImGui::SetColumnWidth(int column_index, float width)
 void ImGui::PushColumnClipRect(int column_index)
 {
     ImGuiWindow* window = GetCurrentWindowRead();
-    ImGuiColumns* columns = window->DC.CurrentColumns;
+    ImGuiOldColumns* columns = window->DC.CurrentColumns;
     if (column_index < 0)
         column_index = columns->Current;
 
-    ImGuiColumnData* column = &columns->Columns[column_index];
+    ImGuiOldColumnData* column = &columns->Columns[column_index];
     PushClipRect(column->ClipRect.Min, column->ClipRect.Max, false);
 }
 
@@ -8026,7 +8027,7 @@ void ImGui::PushColumnClipRect(int column_index)
 void ImGui::PushColumnsBackground()
 {
     ImGuiWindow* window = GetCurrentWindowRead();
-    ImGuiColumns* columns = window->DC.CurrentColumns;
+    ImGuiOldColumns* columns = window->DC.CurrentColumns;
     if (columns->Count == 1)
         return;
 
@@ -8039,7 +8040,7 @@ void ImGui::PushColumnsBackground()
 void ImGui::PopColumnsBackground()
 {
     ImGuiWindow* window = GetCurrentWindowRead();
-    ImGuiColumns* columns = window->DC.CurrentColumns;
+    ImGuiOldColumns* columns = window->DC.CurrentColumns;
     if (columns->Count == 1)
         return;
 
@@ -8048,15 +8049,15 @@ void ImGui::PopColumnsBackground()
     columns->Splitter.SetCurrentChannel(window->DrawList, columns->Current + 1);
 }
 
-ImGuiColumns* ImGui::FindOrCreateColumns(ImGuiWindow* window, ImGuiID id)
+ImGuiOldColumns* ImGui::FindOrCreateColumns(ImGuiWindow* window, ImGuiID id)
 {
     // We have few columns per window so for now we don't need bother much with turning this into a faster lookup.
     for (int n = 0; n < window->ColumnsStorage.Size; n++)
         if (window->ColumnsStorage[n].ID == id)
             return &window->ColumnsStorage[n];
 
-    window->ColumnsStorage.push_back(ImGuiColumns());
-    ImGuiColumns* columns = &window->ColumnsStorage.back();
+    window->ColumnsStorage.push_back(ImGuiOldColumns());
+    ImGuiOldColumns* columns = &window->ColumnsStorage.back();
     columns->ID = id;
     return columns;
 }
@@ -8084,7 +8085,7 @@ void ImGui::BeginColumns(const char* str_id, int columns_count, ImGuiOldColumnFl
 
     // Acquire storage for the columns set
     ImGuiID id = GetColumnsID(str_id, columns_count);
-    ImGuiColumns* columns = FindOrCreateColumns(window, id);
+    ImGuiOldColumns* columns = FindOrCreateColumns(window, id);
     IM_ASSERT(columns->ID == id);
     columns->Current = 0;
     columns->Count = columns_count;
@@ -8118,7 +8119,7 @@ void ImGui::BeginColumns(const char* str_id, int columns_count, ImGuiOldColumnFl
         columns->Columns.reserve(columns_count + 1);
         for (int n = 0; n < columns_count + 1; n++)
         {
-            ImGuiColumnData column;
+            ImGuiOldColumnData column;
             column.OffsetNorm = n / (float)columns_count;
             columns->Columns.push_back(column);
         }
@@ -8127,7 +8128,7 @@ void ImGui::BeginColumns(const char* str_id, int columns_count, ImGuiOldColumnFl
     for (int n = 0; n < columns_count; n++)
     {
         // Compute clipping rectangle
-        ImGuiColumnData* column = &columns->Columns[n];
+        ImGuiOldColumnData* column = &columns->Columns[n];
         float clip_x1 = IM_ROUND(window->Pos.x + GetColumnOffset(n));
         float clip_x2 = IM_ROUND(window->Pos.x + GetColumnOffset(n + 1) - 1.0f);
         column->ClipRect = ImRect(clip_x1, -FLT_MAX, clip_x2, +FLT_MAX);
@@ -8158,7 +8159,7 @@ void ImGui::NextColumn()
         return;
 
     ImGuiContext& g = *GImGui;
-    ImGuiColumns* columns = window->DC.CurrentColumns;
+    ImGuiOldColumns* columns = window->DC.CurrentColumns;
 
     if (columns->Count == 1)
     {
@@ -8175,7 +8176,7 @@ void ImGui::NextColumn()
 
     // Optimization: avoid PopClipRect() + SetCurrentChannel() + PushClipRect()
     // (which would needlessly attempt to update commands in the wrong channel, then pop or overwrite them),
-    ImGuiColumnData* column = &columns->Columns[columns->Current];
+    ImGuiOldColumnData* column = &columns->Columns[columns->Current];
     SetWindowClipRectBeforeSetChannel(window, column->ClipRect);
     columns->Splitter.SetCurrentChannel(window->DrawList, columns->Current + 1);
 
@@ -8210,7 +8211,7 @@ void ImGui::EndColumns()
 {
     ImGuiContext& g = *GImGui;
     ImGuiWindow* window = GetCurrentWindow();
-    ImGuiColumns* columns = window->DC.CurrentColumns;
+    ImGuiOldColumns* columns = window->DC.CurrentColumns;
     IM_ASSERT(columns != NULL);
 
     PopItemWidth();
@@ -8237,7 +8238,7 @@ void ImGui::EndColumns()
         int dragging_column = -1;
         for (int n = 1; n < columns->Count; n++)
         {
-            ImGuiColumnData* column = &columns->Columns[n];
+            ImGuiOldColumnData* column = &columns->Columns[n];
             float x = window->Pos.x + GetColumnOffset(n);
             const ImGuiID column_id = columns->ID + ImGuiID(n);
             const float column_hit_hw = COLUMNS_HIT_RECT_HALF_WIDTH;
@@ -8289,7 +8290,7 @@ void ImGui::Columns(int columns_count, const char* id, bool border)
 
     ImGuiOldColumnFlags flags = (border ? 0 : ImGuiOldColumnFlags_NoBorder);
     //flags |= ImGuiOldColumnFlags_NoPreserveWidths; // NB: Legacy behavior
-    ImGuiColumns* columns = window->DC.CurrentColumns;
+    ImGuiOldColumns* columns = window->DC.CurrentColumns;
     if (columns != NULL && columns->Count == columns_count && columns->Flags == flags)
         return;
 
